@@ -11,18 +11,18 @@ import (
 	"simple-distributed/registry"
 	"simple-distributed/service"
 	"simple-distributed/util"
+	"simple-distributed/weather"
 )
 
 func main() {
-	log.Run("./distributed.log")
-
 	r := registry.Registration{
-		ServiceName:      registry.Log,
-		ServiceURL:       "",
-		RequiredServices: make([]registry.ServiceName, 0),
+		ServiceName: registry.Weather,
+		RequiredServices: []registry.ServiceName{
+			registry.Log,
+		},
 	}
 
-	v, err := util.InitViper("logservice")
+	v, err := util.InitViper("weatherservice")
 
 	if err != nil {
 		var configFileNotFoundError viper.ConfigFileNotFoundError
@@ -42,11 +42,16 @@ func main() {
 		context.Background(),
 		r,
 		v,
-		log.RegisterHandlers,
+		weather.RegisterHandlers,
 	)
 
 	if err != nil {
 		stlog.Fatalln(err)
+	}
+
+	if logProv, err := registry.GetProvider(registry.Log); err == nil {
+		fmt.Printf("Log service found: %s\n", logProv)
+		log.SetClientLogger(logProv, r.ServiceName)
 	}
 
 	<-ctx.Done() // 等待服务停止

@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,7 +12,7 @@ import (
 
 type registry struct {
 	registrations []Registration // 服务注册列表
-	mutex         *sync.Mutex    // 互斥锁，确保并发安全
+	mutex         *sync.RWMutex  // 读写互斥锁，确保并发安全
 }
 
 // Register 将服务注册到注册中心
@@ -19,6 +20,11 @@ func (r *registry) Register(reg Registration) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	r.registrations = append(r.registrations, reg)
+
+	if err := r.sendRequiredService(reg); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -37,9 +43,50 @@ func (r *registry) Unregister(url string) error {
 	return fmt.Errorf("the service of %v was not found", url)
 }
 
+// sendRequiredService 发送该服务所需的服务信息
+func (r *registry) sendRequiredService(reg Registration) error {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
+	// 创建一个补丁对象，用于存储服务依赖的其他服务
+	var p patch
+
+	for _, srvReg := range r.registrations {
+		for _, need := range reg.RequiredServices {
+			if srvReg.ServiceName == need {
+				p.Added = append(p.Added, patchEntry{
+					Name: srvReg.ServiceName,
+					URL:  srvReg.ServiceURL,
+				})
+			}
+		}
+	}
+
+	if err := r.sendPatch(p, reg.ServiceUpdateURL); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// sendPatch 发送服务中心服务变动的补丁信息
+func (r *registry) sendPatch(p patch, url string) error {
+	d, err := json.Marshal(p)
+
+	if err != nil {
+		return err
+	}
+
+	if _, err = http.Post(url, "application/json", bytes.NewBuffer(d)); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 var reg = registry{
 	registrations: make([]Registration, 0),
-	mutex:         new(sync.Mutex),
+	mutex:         new(sync.RWMutex),
 }
 
 type RegistryService struct{}
