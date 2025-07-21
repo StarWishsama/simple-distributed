@@ -37,6 +37,9 @@ func startService(ctx context.Context, serviceName registry.ServiceName, host st
 	// 启动 HTTP 服务器
 	go func() {
 		log.Println(srv.ListenAndServe())
+		if err := unregisterService(host, port); err != nil {
+			log.Printf("Failed to unregister service: %v\n", err)
+		}
 		cancel()
 	}()
 
@@ -45,9 +48,21 @@ func startService(ctx context.Context, serviceName registry.ServiceName, host st
 		fmt.Printf("Serving %s on %s:%s, Press any key to stop service.\n", serviceName, host, port)
 		var input string
 		fmt.Scanln(&input)
+		if err := unregisterService(host, port); err != nil {
+			log.Printf("Failed to unregister service: %v\n", err)
+		}
 		srv.Shutdown(ctx)
 		cancel()
 	}()
 
 	return ctx
+}
+
+// unregisterService 从注册中心注销服务
+func unregisterService(host, port string) error {
+	url := fmt.Sprintf("http://%s:%s", host, port)
+	if err := registry.UnregisterService(url); err != nil {
+		return fmt.Errorf("failed to unregister service at %s: %w", url, err)
+	}
+	return nil
 }

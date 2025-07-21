@@ -2,6 +2,8 @@ package registry
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"sync"
@@ -12,11 +14,27 @@ type registry struct {
 	mutex         *sync.Mutex    // 互斥锁，确保并发安全
 }
 
+// Register 将服务注册到注册中心
 func (r *registry) Register(reg Registration) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	r.registrations = append(r.registrations, reg)
 	return nil
+}
+
+// Unregister 从注册中心注销服务
+func (r *registry) Unregister(url string) error {
+	for i, reg := range r.registrations {
+		if reg.ServiceURL == url {
+			r.mutex.Lock()
+			r.registrations = append(r.registrations[:i], r.registrations[i+1:]...)
+			r.mutex.Unlock()
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("the service of %v was not found", url)
 }
 
 var reg = registry{
@@ -45,6 +63,24 @@ func (s RegistryService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Println(err)
 			http.Error(w, "Failed to register service", http.StatusInternalServerError)
+			return
+		}
+	case http.MethodDelete:
+		payload, err := io.ReadAll(r.Body)
+
+		if err != nil {
+			http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+			return
+		}
+
+		url := string(payload)
+
+		log.Printf("Unregistering service at %s\n", url)
+		err = reg.Unregister(url)
+
+		if err != nil {
+			log.Println(err)
+			http.Error(w, "Failed to unregister service", http.StatusInternalServerError)
 			return
 		}
 	default:
